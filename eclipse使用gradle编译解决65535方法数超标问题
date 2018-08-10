@@ -1,0 +1,95 @@
+虽说目前eclipse版本已经不更新了，但是还是很多程序员开发还在使用eclipse工具，由于项目版本不断更新以及新功能的不断加入导致项目的容量
+在不断的增大，最终会导致程序的爆棚，也就会是启动程序会报65536方法数的超标。
+解决办法也相应的有很多
+1、为了不让项目过大，仅少量的引入jar包或删除项目中关联不是很大的jar包，但是如果你是接手别人的项目，然后这个项目用了好多工具jar包，
+改动起来相当的费劲，导致你很厌烦修改别人的代码，然后公司没有时间给你重构代码的时间，这往往领你很是伤脑筋。
+2、为了让自己项目看起来更加的舒服和好用，当然架构的作用非常大，好的架构会让你写代码如飞起来一般。
+3、插件化，这个方法我觉得是最佳的解决办法，一个可以缩小项目的大小，二个可以解决方法数超标的风险，但是个人觉得比较费劲，很难懂。
+4、eclipse使用Gradle分包APK解决方法数超标，个人觉得这个比较简单，虽然打出来的包容量还是没有减小，但是完全可以解决你的问题65536异常
+
+分包攻略
+1、需要gradle工具，可以用你的studio工具中的gradle，配置gradle环境变量，网上有很多请自行搜索
+2、需要gradle-eclipse插件，请自行在网上下载，然后解压后，把features和plugins目录下的文件分别复制到Eclipse安装路径下对应的features
+和plugins两个目录下，然后重启Eclipse即可
+3、生成工程配置文件（build.gradle和settings.gradle）步骤是右键需要打包的工程-->Export-->Android-->Generate Gradle build files
+选中你要打的包项目和依赖库（没有依赖库只选需要配置的工程项目即可），然后项目中会自动生成build.gradle文件
+4、需要修改build.gradle文件中的参数信息，根目录中的build.gradle需要修改成自己的gradle对应的classpath
+    dependencies {
+        classpath 'com.android.tools.build:gradle:1.2.3'//这个需要手动修改，这个是我的gradle2.4 所对应的
+    }
+    android {
+      dexOptions {
+    	incremental true
+    	//解决OOM gc overhead limit exceeded
+    	javaMaxHeapSize "4g"
+    	//对于dex的-multi-dex选项设置与预编译的library工程有冲突，如果应用中有library工程需要设置成false
+   		 preDexLibraries = false 
+    }
+    
+    //由于添加的某个jar包导致编译错误duplicate files during packaging of APK Path in archive: META-INF/LICENSE.txt，需添加下面两个代码
+    packagingOptions {
+     	exclude 'META-INF/LICENSE.txt'
+    	exclude 'META-INF/NOTICE.txt'
+    }    
+    }
+    //资源文件配置，会自动生成jni那一项需要手动添加上
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            //打包依赖so文件
+            jniLibs.srcDirs = ['libs']
+            java.srcDirs = ['src']
+            resources.srcDirs = ['src']
+            aidl.srcDirs = ['src']
+            renderscript.srcDirs = ['src']
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+        }
+  //Lint found errors in the project:aborting build 不加下面这行代码会报此错误
+  lintOptions { 
+     abortOnError false 
+   }
+   //签名参数配置
+   signingConfigs {
+   		myConfig {
+   		   //签名所在路径，可以是相对路径，也可以是绝对路径
+   			storeFile file("E:\\sign\\wxy_keystore.keystore")
+   			storePassword "xxx"
+   			keyAlias "xxx"
+   			keyPassword "xxx"
+   		}
+   }
+   //混淆配置文件
+   buildTypes{
+   	release {
+   	minifyEnabled false表示工程打包时，不进行混淆
+   	minifyEnabled false 
+   	混淆配置文件
+   	proguardFiles getDefaultProguardFile('proguard-android.txt'),'proguard-project.txt'
+   	签名配置
+   	signingConfig signingConfigs.myConfig
+   	}
+   }
+   //分包参数配置
+   afterEvaluate {      
+ 	tasks.matching {  
+        it.name.startsWith('dex')  
+	}.each {  
+ 		dx -> if (dx.additionalParameters == null)  
+ 	{  
+		dx.additionalParameters = ['--multi-dex']  
+ 	}else {              
+		dx.additionalParameters += '--multi-dex'        
+	}  
+ 	}
+}
+以上就是build.gradle的基本配置，然后library依赖库中使用默认的配置就可以，如果有jni接入，还是需要自己手动添加一下。
+5、需要引入Google提供的解决分包的问题的jar包android-support-multidex.jar步骤与正常引入有些区别，需要进入java Build Path选项libraries
+选项下通过右侧按钮Add External JARs手动添加这个jar包，不需要在lib目录下导入这个jar包
+6、然后配置Application类，如果工程有自定义的Application，则在自定义的Application中覆写attachBaseContext方法，然后在该方法中添加
+一行代码MultiDex.install(this);如果项目中没有自定义的Application，则需要在AndroidManifest.xml中声明MultiDexApplication
+7、开始gradle编译
+打开命令提示符cmd 进入到项目的根目录然后执行命令行gradle build --info 开始编译，编译过程会有些慢，耐心等待一下，观察下面进度
+如果编译过程出现错误很正常，根据提示依次排查如果找不到问题所在可以输入命令行gradle install --stacktrace或者gradle install --debug
+进行错误定位最终编译100%显示build successful，说明已经成功编译了，然后在你的项目中build目录中outputs目录下有个apk目录显示的就是
+你所编译成功的apk，然后进行安装就可以了。
